@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Проверка сертификатов</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: auto; padding: 20px; background: #f9f9f9; color: #333; }
+    h1 { color: #006400; text-align: center; }
+    textarea, input { width: 100%; font-size: 16px; padding: 8px; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 10px 20px; font-size: 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: left; vertical-align: top; }
+    th { background: #e2e3e5; }
+    .certificate-valid td { border-left: 5px solid #28a745; }
+    .certificate-expired td { border-left: 5px solid #dc3545; }
+    .status-yes { color: green; font-weight: bold; }
+    .status-no { color: red; font-weight: bold; }
+    #progress { margin-top: 15px; font-weight: bold; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Проверка ключевых слов в сертификатах</h1>
+  <form id="check-form">
+    <label>Номера сертификатов (по одному на строку):</label>
+    <textarea id="numbers" required></textarea>
+    <label>Ключевые слова (через запятую):</label>
+    <input type="text" id="keywords" value="Эгилопс" required />
+    <button type="submit">Проверить</button>
+  </form>
+  <div id="progress"></div>
+  <table id="results-table" style="display:none;">
+    <thead>
+      <tr>
+        <th>Номер</th>
+        <th>Статус</th>
+        <th>Срок действия</th>
+        <th>Страна назначения</th>
+        <th>Статус предприятия</th>
+        <th>Детали</th>
+      </tr>
+    </thead>
+    <tbody id="results-body"></tbody>
+  </table>
+  <script>
+    const form = document.getElementById("check-form");
+    const table = document.getElementById("results-table");
+    const tbody = document.getElementById("results-body");
+    const progress = document.getElementById("progress");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      tbody.innerHTML = "";
+      table.style.display = "none";
+      progress.textContent = "Проверка...";
+
+      const numbers = document.getElementById("numbers").value.split("\n").map(n => n.trim()).filter(n => n);
+      const keywords = document.getElementById("keywords").value.split(",").map(k => k.trim()).filter(k => k);
+
+      let done = 0;
+      for (const number of numbers) {
+        progress.textContent = `Проверено ${++done} из ${numbers.length}...`;
+        try {
+          const res = await fetch("/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ numbers: [number], keywords })
+          });
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const json = await res.json();
+          const result = json.results[0];
+
+          const tr = document.createElement("tr");
+          tr.className = result.valid === true ? "certificate-valid" :
+                         result.valid === false ? "certificate-expired" : "";
+          tr.innerHTML = `
+            <td>${result.number}</td>
+            <td class="${result.found ? 'status-yes' : 'status-no'}">${result.found ? 'Найдено' : 'Не найдено'}</td>
+            <td>${result.valid === true ? '🟢 Действующий' : result.valid === false ? '🔴 Просрочен' : '–'}</td>
+            <td>${result.destination}</td>
+            <td>${result.enterprise_status}</td>
+            <td>${result.info.replace(/\n/g, "<br>")}</td>`;
+          tbody.appendChild(tr);
+        } catch (err) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td colspan="6">Ошибка: ${err.message}</td>`;
+          tbody.appendChild(tr);
+        }
+      }
+      progress.textContent = "Готово!";
+      table.style.display = "table";
+    });
+  </script>
+</body>
+</html>

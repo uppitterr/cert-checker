@@ -1,0 +1,8 @@
+
+flask
+requests
+PyMuPDF
+flask-cors
+beautifulsoup4
+selenium
+gunicorn
