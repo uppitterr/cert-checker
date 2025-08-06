@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Проверка сертификатов</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 900px;
+      margin: auto;
+      padding: 20px;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      color: #006400;
+      text-align: center;
+    }
+    textarea, input {
+      width: 100%;
+      font-size: 16px;
+      padding: 8px;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #218838;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #e2e3e5;
+    }
+    .found td {
+      background: #e9f9ec;
+    }
+    .notfound td {
+      background: #fbeaea;
+    }
+    .certificate-valid td {
+      border-left: 5px solid #28a745;
+    }
+    .certificate-expired td {
+      border-left: 5px solid #dc3545;
+    }
+    #progress {
+      margin-top: 15px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .status-yes {
+      color: #155724;
+      font-weight: bold;
+    }
+    .status-no {
+      color: #721c24;
+      font-weight: bold;
+    }
+    @media (max-width: 600px) {
+      body { padding: 10px; }
+      h1 { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Проверка ключевых слов в сертификатах</h1>
+  <form id="check-form">
+    <label for="numbers">Введите номера сертификатов (по одному на строку):</label>
+    <textarea id="numbers" name="numbers" placeholder="Например: 232651001207250259" required></textarea>
+
+    <label for="keywords">Ключевые слова (через запятую):</label>
+    <input type="text" id="keywords" name="keywords" value="Эгилопс" required>
+
+    <button type="submit">Проверить</button>
+  </form>
+
+  <div id="progress"></div>
+
+  <table id="results-table" style="display:none;">
+    <thead>
+      <tr>
+        <th>Номер</th>
+        <th>Статус</th>
+        <th>Срок действия</th>
+        <th>Страна назначения</th>
+        <th>Статус предприятия</th>
+        <th>Детали</th>
+      </tr>
+    </thead>
+    <tbody id="results-body"></tbody>
+  </table>
+
+  <script>
+    const form = document.getElementById("check-form");
+    const progressEl = document.getElementById("progress");
+    const table = document.getElementById("results-table");
+    const tbody = document.getElementById("results-body");
+
+    form.addEventListener("submit", async function(e) {
+      e.preventDefault();
+      tbody.innerHTML = "";
+      table.style.display = "none";
+      progressEl.textContent = "Отправка...";
+
+      const numbers = document.getElementById("numbers").value
+        .split("\n")
+        .map(n => n.trim())
+        .filter(n => n !== "");
+
+      const keywords = document.getElementById("keywords").value
+        .split(",")
+        .map(k => k.trim())
+        .filter(k => k !== "");
+
+      const total = numbers.length;
+      let done = 0;
+
+      for (const num of numbers) {
+        progressEl.textContent = `Проверено ${++done} из ${total}...`;
+
+        try {
+          const res = await fetch("/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ numbers: [num], keywords })
+          });
+
+          const json = await res.json();
+          const tr = document.createElement("tr");
+
+          if (json.results && json.results[0]) {
+            const r = json.results[0];
+
+            // ---------- 1️⃣ Статус найденных ключевых слов ----------
+            const statusClass = r.found ? "status-yes" : "status-no";
+            const statusLabel = r.found ? "Найдено" : "Не найдено";
+
+            // ---------- 2️⃣ Срок действия ----------
+            let marker = "";
+            let validity = "";
+            if (r.validity && r.validity.includes("Действующий")) {
+              marker = "🟩";
+              validity = "Действующий";
+            } else if (r.validity && r.validity.includes("Просрочен")) {
+              marker = "🟥";
+              validity = "Просрочен";
+            } else {
+              validity = "Неизвестно";
+            }
+
+            // ---------- 3️⃣ Страна назначения ----------
+            const country = r.destination || "-";
+            const isChina = /китай/i.test(country);
+            const countryCell = isChina
+              ? `<span style="font-weight:bold;color:#155724">Китай ✅</span>`
+              : `<span style="font-weight:bold;color:#721c24">${country} ❌</span>`;
+
+            // ---------- 4️⃣ Статус предприятия ----------
+            const entStatus = r.enterprise_status || "-";
+
+            // ---------- 5️⃣ Сборка строки ----------
+            const rowClass = r.found ? "found" : "notfound";
+            tr.className = rowClass + (isChina ? " certificate-valid" : " certificate-expired");
+
+            tr.innerHTML = `
+              <td>${r.number}</td>
+              <td class="${statusClass}">${statusLabel}</td>
+              <td>${marker} ${validity}</td>
+              <td>${countryCell}</td>
+              <td>${entStatus}</td>
+              <td>${r.info.replace(/\n/g, "<br>")}</td>
+            `;
+          } else {
+            // Ошибочный ответ от сервера
+            tr.className = "notfound";
+            tr.innerHTML = `
+              <td>${num}</td>
+              <td class="status-no">Ошибка</td>
+              <td>–</td>
+              <td>-</td>
+              <td>-</td>
+              <td>${json.error || "Неизвестно"}</td>
+            `;
+          }
+
+          tbody.appendChild(tr);
+        } catch (err) {
+          const tr = document.createElement("tr");
+          tr.className = "notfound";
+          tr.innerHTML = `
+            <td>${num}</td>
+            <td class="status-no">Ошибка</td>
+            <td>–</td>
+            <td>-</td>
+            <td>-</td>
+            <td>${err.message}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }
+
+      table.style.display = "table";
+      progressEl.textContent = "Готово!";
+    });
+  </script>
+</body>
+</html>
