@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Проверка сертификатов</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: auto;
+      padding: 20px;
+      background: #f5f7fa;
+      color: #333;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #2c3e50;
+      text-align: center;
+      margin-bottom: 30px;
+      font-weight: 600;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 25px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    textarea, input {
+      width: 100%;
+      font-size: 16px;
+      padding: 10px;
+      box-sizing: border-box;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      transition: border 0.3s;
+    }
+    textarea {
+      min-height: 150px;
+    }
+    textarea:focus, input:focus {
+      border-color: #3498db;
+      outline: none;
+    }
+    button {
+      padding: 12px 25px;
+      font-size: 16px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.3s;
+      font-weight: 500;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 25px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    th, td {
+      border: 1px solid #e0e0e0;
+      padding: 12px 15px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f8f9fa;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    tr:nth-child(even) {
+      background: #f9f9f9;
+    }
+    tr:hover {
+      background: #f1f7fd;
+    }
+    .status-found {
+      color: #27ae60;
+      font-weight: 600;
+    }
+    .status-notfound {
+      color: #e74c3c;
+      font-weight: 600;
+    }
+    .status-valid {
+      color: #27ae60;
+    }
+    .status-expired {
+      color: #e74c3c;
+    }
+    .status-unknown {
+      color: #f39c12;
+    }
+    #progress-container {
+      margin: 20px 0;
+      background: #f1f1f1;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 25px;
+      background: #e0e0e0;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    #progress {
+      height: 100%;
+      background: #3498db;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    #progress-text {
+      text-align: center;
+      margin-top: 8px;
+      font-weight: 500;
+      color: #555;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-success {
+      background: #d5f5e3;
+      color: #27ae60;
+    }
+    .badge-danger {
+      background: #fadbd8;
+      color: #e74c3c;
+    }
+    .badge-warning {
+      background: #fdebd0;
+      color: #f39c12;
+    }
+    .details {
+      font-size: 14px;
+      color: #555;
+      line-height: 1.5;
+    }
+    .details p {
+      margin: 5px 0;
+    }
+    @media (max-width: 768px) {
+      body { padding: 15px; }
+      h1 { font-size: 22px; }
+      th, td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Проверка сертификатов на ключевые слова и срок действия</h1>
+    <form id="check-form">
+      <label for="numbers">Номера сертификатов (по одному на строку):</label>
+      <textarea id="numbers" name="numbers" placeholder="Например: 232651001207250259" required></textarea>
+
+      <label for="keywords">Ключевые слова (через запятую):</label>
+      <input type="text" id="keywords" name="keywords" value="Эгилопс" required>
+
+      <button type="submit">Проверить</button>
+    </form>
+
+    <div id="progress-container">
+      <div id="progress-bar">
+        <div id="progress"></div>
+      </div>
+      <div id="progress-text">Готов к работе</div>
+    </div>
+
+    <table id="results-table" style="display:none;">
+      <thead>
+        <tr>
+          <th>Номер</th>
+          <th>Ключевые слова</th>
+          <th>Срок действия</th>
+          <th>Культура</th>
+          <th>Отправитель</th>
+          <th>Статус сертификата</th>
+          <th>Детали</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+  </div>
+
+  <script>
+    const form = document.getElementById("check-form");
+    const progressBar = document.getElementById("progress");
+    const progressText = document.getElementById("progress-text");
+    const table = document.getElementById("results-table");
+    const tbody = document.getElementById("results-body");
+
+    const BATCH_SIZE = 3;
+    const DELAY_BETWEEN_BATCHES = 1000;
+
+    form.addEventListener("submit", function(e) {
+      e.preventDefault();
+      tbody.innerHTML = "";
+      table.style.display = "none";
+      progressText.textContent = "Подготовка...";
+
+      const numbers = document.getElementById("numbers").value
+        .split("\n").map(n => n.trim()).filter(n => n !== "");
+      const keywords = document.getElementById("keywords").value
+        .split(",").map(k => k.trim()).filter(k => k !== "");
+
+      if (numbers.length === 0) {
+        progressText.textContent = "Ошибка: не введены номера сертификатов";
+        return;
+      }
+
+      const total = numbers.length;
+      let processed = 0;
+      table.style.display = "table";
+
+      async function processCertificate(num) {
+        try {
+          const res = await fetch("/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ numbers: [num], keywords })
+          });
+
+          if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+          const json = await res.json();
+          const r = json.results?.[0] || {};
+
+          const tr = document.createElement("tr");
+
+          const isFound = r.found || false;
+          const statusClass = isFound ? "status-found" : "status-notfound";
+          const statusLabel = isFound
+            ? `Найдено (${r.found_keywords.join(", ")})`
+            : "Не найдено";
+
+          let validityStatus = "status-unknown";
+          let validityText = "Неизвестно";
+          let validityBadge = "";
+          if (r.validity) {
+            if (r.validity.includes("Действующий")) {
+              validityStatus = "status-valid";
+              validityText = "Действующий";
+              validityBadge = '<span class="badge badge-success">Активен</span>';
+            } else if (r.validity.includes("Просрочен")) {
+              validityStatus = "status-expired";
+              validityText = "Просрочен";
+              validityBadge = '<span class="badge badge-danger">Просрочен</span>';
+            }
+          }
+
+          let certStatus = r.cert_status || "Неизвестно";
+          if (certStatus === "Погашен") {
+            certStatus = '<span class="badge badge-danger">Погашен</span>';
+          } else if (certStatus === "Действует") {
+            certStatus = '<span class="badge badge-success">Действует</span>';
+          }
+
+          const sender = r.company_name || "Не указан";
+          const culture = r.product_name || "Не указана";
+
+          const details = document.createElement("div");
+          details.className = "details";
+
+          if (r.found_keywords?.length > 0) {
+            details.innerHTML += `<p><strong>Найденные ключевые слова:</strong> ${r.found_keywords.join(", ")}</p>`;
+          } else {
+            details.innerHTML += `<p><strong>Ключевые слова:</strong> не найдены</p>`;
+          }
+
+          if (r.product_name) {
+            details.innerHTML += `<p><strong>Наименование продукции:</strong> ${r.product_name}</p>`;
+          }
+          if (r.company_name) {
+            details.innerHTML += `<p><strong>Компания:</strong> ${r.company_name}</p>`;
+          }
+          if (r.inn) {
+            details.innerHTML += `<p><strong>ИНН:</strong> ${r.inn}</p>`;
+          }
+          if (r.validity) {
+            details.innerHTML += `<p><strong>Срок действия:</strong> ${validityText}</p>`;
+          }
+          if (r.cert_status) {
+            details.innerHTML += `<p><strong>Статус сертификата:</strong> ${certStatus}</p>`;
+          }
+          if (r.date_raw && r.date_raw !== "-") {
+            details.innerHTML += `<p><strong>Дата выдачи:</strong> ${r.date_raw}</p>`;
+          }
+
+          tr.innerHTML = `
+            <td>${r.number || num}</td>
+            <td class="${statusClass}">${statusLabel}</td>
+            <td class="${validityStatus}">${validityBadge} ${validityText}</td>
+            <td>${culture}</td>
+            <td>${sender}</td>
+            <td>${certStatus}</td>
+            <td></td>
+          `;
+          tr.cells[6].appendChild(details);
+          tbody.appendChild(tr);
+
+          return { success: true };
+        } catch (err) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${num}</td>
+            <td class="status-notfound">Ошибка</td>
+            <td>-</td>
+            <td>-</td>
+            <td>-</td>
+            <td>-</td>
+            <td>${err.message}</td>
+          `;
+          tbody.appendChild(tr);
+          return { success: false, error: err.message };
+        }
+      }
+
+      function updateProgress() {
+        const percent = Math.round(processed / total * 100);
+        progressBar.style.width = `${percent}%`;
+        progressText.textContent = `Обработано ${processed} из ${total} (${percent}%)`;
+        if (processed >= total) {
+          progressText.textContent = "Готово!";
+        }
+      }
+
+      async function processBatch() {
+        const batch = numbers.slice(processed, processed + BATCH_SIZE);
+        await Promise.all(batch.map(processCertificate));
+        processed += batch.length;
+        updateProgress();
+        if (processed < total) {
+          setTimeout(processBatch, DELAY_BETWEEN_BATCHES);
+        }
+      }
+
+      processBatch();
+    });
+  </script>
+</body>
+</html>
